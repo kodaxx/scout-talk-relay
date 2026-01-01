@@ -39,6 +39,7 @@ function generateHTML() {
         
         .speaking { color: #4ade80; font-weight: bold; animation: pulse 1.5s infinite; }
         .mesh-tag { background: #4338ca; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: bold; }
+        .ch-badge { background: #334155; color: #f8fafc; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
         
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
         
@@ -47,17 +48,12 @@ function generateHTML() {
             cursor: pointer; font-weight: 600; color: #020617; transition: all 0.2s; 
         }
         button:hover { background: #7dd3fc; transform: translateY(-1px); }
-        button:active { transform: translateY(0px); }
-
-        /* Tooltip Style */
-        .leaflet-tooltip {
-            background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 4px; font-weight: 600;
-        }
+        .leaflet-tooltip { background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 4px; font-weight: 600; }
     </style>
 </head>
 <body>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h1 style="margin:0;">Scout Talk Radar <small style="font-size: 12px; color: #64748b; vertical-align: middle;">v${state.version}</small></h1>
+        <h1 style="margin:0;">🛰️ Scout Talk Radar <small style="font-size: 12px; color: #64748b; vertical-align: middle;">v${state.version}</small></h1>
         <button onclick="centerMap()">Center Radar View</button>
     </div>
     
@@ -70,8 +66,9 @@ function generateHTML() {
                 <thead>
                     <tr>
                         <th>User ID</th>
+                        <th>CH</th>
                         <th>Type</th>
-                        <th>Gateway</th>
+                        <th>Last Contact</th>
                         <th>Status</th>
                     </tr>
                 </thead>
@@ -93,7 +90,6 @@ function generateHTML() {
     </div>
 
     <script>
-        // Use CartoDB Dark Matter for a tactical look
         const map = L.map('map', { zoomControl: true }).setView([0, 0], 2);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '© OpenStreetMap | © CARTO'
@@ -114,12 +110,10 @@ function generateHTML() {
             const data = await res.json();
             const now = Date.now();
             
-            // Update Text Stats
             document.getElementById('pIn').innerText = data.stats.packetsIn;
             document.getElementById('pLoss').innerText = data.stats.upstreamLoss;
             document.getElementById('pLag').innerText = data.stats.loopLag + 'ms';
             
-            // Update Event Log
             document.getElementById('events').innerHTML = data.events.map(e => 
                 '<div>[' + new Date(e.time).toLocaleTimeString() + '] ' + e.msg + '</div>'
             ).reverse().join('');
@@ -137,23 +131,21 @@ function generateHTML() {
                     const timeSince = (now - u.lastSeen) / 1000;
                     const isSpeaking = (now - u.lastAudio < 2000);
                     
-                    // Logic to check if this is a mesh bridge (multiple users on same IP)
                     const meshPeers = Object.values(users).filter(other => other.transportKey === u.transportKey).length;
                     const userTypeLabel = meshPeers > 1 ? 'Meshed' : 'Standalone';
                     const meshBadge = meshPeers > 1 ? '<span class="mesh-tag">MESH</span>' : '';
 
-                    // Opacity math: Fade linearly to 10% over the 45s timeout window
                     const opacity = Math.max(0.1, 1 - (timeSince / 45));
 
                     const row = tbody.insertRow();
                     row.innerHTML = \`<td>\${uid}\${meshBadge}</td>
+                                  <td><span class="ch-badge">CH \${chId}</span></td>
                                   <td>\${userTypeLabel}</td>
-                                  <td>\${u.address}</td>
+                                  <td style="color: #94a3b8;">\${Math.floor(timeSince)}s ago</td>
                                   <td class="\${isSpeaking ? 'speaking' : ''}">\${isSpeaking ? 'TRANSMITTING' : 'Idle'}</td>\`;
 
-                    // Handle Tactical Dot Marker
                     if (u.lat && u.lon) {
-                        const tooltipContent = \`<b>ID:</b> \${uid}<br><b>Type:</b> \${userTypeLabel}<br><b>Last Seen:</b> \${Math.floor(timeSince)}s ago\`;
+                        const tooltipContent = \`<b>ID:</b> \${uid}<br><b>CH:</b> \${chId}<br><b>Seen:</b> \${Math.floor(timeSince)}s ago\`;
                         
                         if (!markers[uid]) {
                             markers[uid] = L.circleMarker([u.lat, u.lon], {
@@ -177,7 +169,6 @@ function generateHTML() {
                 }
             }
 
-            // Remove markers for disconnected users
             for (const uid in markers) {
                 if (!currentUids.has(uid)) {
                     map.removeLayer(markers[uid]);
@@ -186,11 +177,9 @@ function generateHTML() {
             }
         }
 
-        // Poll every 2 seconds
         setInterval(update, 2000);
         update();
 
-        // One-time auto-center on first user discovery
         let initialFocus = true;
         setInterval(() => {
             if (initialFocus && Object.keys(markers).length > 0) {

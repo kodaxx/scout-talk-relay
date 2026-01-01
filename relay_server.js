@@ -6,39 +6,23 @@ const UDP_PORT = 6000;
 const WEB_PORT = 8080;
 const TRUNK_CHANNEL = 0;
 
-// --- Diagnostics State ---
 let stats = {
     packetsIn: 0,
     packetsOut: 0,
-    droppedLocal: 0,
+    upstreamLoss: 0, // Loss from Client -> Server
     loopLag: 0,
     startTime: Date.now()
 };
 
-// Monitor Event Loop Lag (High lag = Choppy Audio)
+const channels = {}; 
+
+// --- Event Loop Monitor ---
 let lastLoop = Date.now();
 setInterval(() => {
     const now = Date.now();
-    stats.loopLag = now - lastLoop - 100; // Aiming for 100ms interval
+    stats.loopLag = now - lastLoop - 100;
     lastLoop = now;
 }, 100);
-
-const channels = {}; 
-
-function forwardToChannel(msg, senderKey, targetChannelId) {
-    const peers = channels[targetChannelId];
-    if (!peers) return;
-
-    for (const [peerKey] of Object.entries(peers)) {
-        if (peerKey !== senderKey) {
-            const [peerIp, peerPort] = peerKey.split(':');
-            server.send(msg, parseInt(peerPort), peerIp, (err) => {
-                if (err) stats.droppedLocal++;
-                else stats.packetsOut++;
-            });
-        }
-    }
-}
 
 server.on('message', (msg, rinfo) => {
     stats.packetsIn++;
@@ -47,22 +31,50 @@ server.on('message', (msg, rinfo) => {
     const type = msg.readUInt8(0);
     const userId = msg.readUInt32BE(1);
     const channelId = msg.readUInt16BE(5);
+    const sequence = msg.readUInt16BE(7); // Parse Sequence from [7-8]
     const clientKey = `${rinfo.address}:${rinfo.port}`;
     
     if (!channels[channelId]) channels[channelId] = {};
+    
+    // Track Sequence Continuity
+    const session = channels[channelId][clientKey];
+    if (session && type === 1) { // Only track gaps for Audio
+        const expected = (session.lastSequence + 1) % 65536;
+        if (sequence !== expected && sequence !== 0) {
+            // We found a gap!
+            stats.upstreamLoss++;
+        }
+    }
+
+    // Update Session
     channels[channelId][clientKey] = { 
         userId, 
         lastSeen: Date.now(), 
-        lastAudio: type === 1 ? Date.now() : (channels[channelId][clientKey]?.lastAudio || 0)
+        lastSequence: sequence,
+        lastAudio: type === 1 ? Date.now() : (session?.lastAudio || 0)
     };
 
     if (type === 1) { 
-        forwardToChannel(msg, clientKey, channelId);
-        if (channelId !== TRUNK_CHANNEL) forwardToChannel(msg, clientKey, TRUNK_CHANNEL);
+        // Forwarding Logic
+        const targetChannels = [channelId];
+        if (channelId !== TRUNK_CHANNEL) targetChannels.push(TRUNK_CHANNEL);
+
+        targetChannels.forEach(ch => {
+            const peers = channels[ch];
+            if (!peers) return;
+            for (const [peerKey] of Object.entries(peers)) {
+                if (peerKey !== clientKey) {
+                    const [pIp, pPort] = peerKey.split(':');
+                    server.send(msg, parseInt(pPort), pIp, (err) => {
+                        if (!err) stats.packetsOut++;
+                    });
+                }
+            }
+        });
     }
 });
 
-// --- Enhanced Web Dashboard ---
+// --- Dashboard with Loss Metrics ---
 const webServer = http.createServer((req, res) => {
     if (req.url === '/api/status') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -74,44 +86,37 @@ const webServer = http.createServer((req, res) => {
     res.end(`
         <html>
             <head>
-                <title>Relay Diagnostics</title>
+                <title>Relay Intelligence</title>
                 <style>
-                    body { font-family: sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
-                    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-                    .stat-card { background: #1e1e1e; padding: 15px; border-radius: 8px; border: 1px solid #333; text-align: center; }
-                    .stat-val { display: block; font-size: 1.8em; font-weight: bold; color: #3498db; }
-                    .warning { color: #e74c3c !important; }
-                    .channel-card { background: #1e1e1e; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid #444; }
+                    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
+                    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
+                    .card { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; text-align: center; }
+                    .val { display: block; font-size: 2em; font-weight: 800; color: #38bdf8; }
+                    .loss-val { color: #fb7185; } /* Red for loss */
+                    .channel-box { background: #1e293b; padding: 15px; border-radius: 12px; margin-top: 10px; }
                 </style>
             </head>
             <body>
-                <h1>Network Health Monitor</h1>
-                
+                <h2>Relay Health & Upstream Loss</h2>
                 <div class="stats-grid">
-                    <div class="stat-card"><span class="stat-val" id="pkIn">-</span>Packets Recv</div>
-                    <div class="stat-card"><span class="stat-val" id="pkOut">-</span>Packets Sent</div>
-                    <div class="stat-card"><span class="stat-val" id="lag">-</span>Loop Lag (ms)</div>
-                    <div class="stat-card"><span class="stat-val" id="drop">-</span>Local Drops</div>
+                    <div class="card"><span class="val" id="pkIn">-</span>Packets In</div>
+                    <div class="card"><span class="val loss-val" id="loss">-</span>Upstream Loss</div>
+                    <div class="card"><span class="val" id="lag">-</span>Loop Lag</div>
+                    <div class="card"><span class="val" id="pkOut">-</span>Packets Out</div>
                 </div>
-
                 <div id="display"></div>
-
                 <script>
                     async function update() {
                         const res = await fetch('/api/status');
                         const data = await res.json();
+                        document.getElementById('pkIn').innerText = data.stats.packetsIn;
+                        document.getElementById('pkOut').innerText = data.stats.packetsOut;
+                        document.getElementById('loss').innerText = data.stats.upstreamLoss;
+                        document.getElementById('lag').innerText = data.stats.loopLag + 'ms';
                         
-                        document.getElementById('pkIn').innerText = data.stats.packetsIn.toLocaleString();
-                        document.getElementById('pkOut').innerText = data.stats.packetsOut.toLocaleString();
-                        document.getElementById('drop').innerText = data.stats.droppedLocal;
-                        
-                        const lagEl = document.getElementById('lag');
-                        lagEl.innerText = data.stats.loopLag;
-                        lagEl.className = 'stat-val ' + (data.stats.loopLag > 20 ? 'warning' : '');
-
                         let html = '';
-                        for (const [chId, peers] of Object.entries(data.channels)) {
-                            html += \`<div class="channel-card"><strong>Channel \${chId}</strong> (\${Object.keys(peers).length} peers)</div>\`;
+                        for (const [id, p] of Object.entries(data.channels)) {
+                            html += '<div class="channel-box"><strong>Channel ' + id + '</strong></div>';
                         }
                         document.getElementById('display').innerHTML = html;
                     }

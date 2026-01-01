@@ -1,10 +1,10 @@
-# Scout Talk Relay Server
+# Scout Talk Relay Server (v0.1.0)
 
-A lightweight, high-performance UDP reflector designed for Push-To-Talk (PTT) voice applications. It handles NAT traversal (Keep-Alives) and reflects audio packets to clients in the same channel.
+A modular, high-performance UDP reflector designed for Push-To-Talk (PTT) voice and text applications. It handles NAT traversal, real-time diagnostics, and "Global Trunk" bridging.
 
 ## Quick Start (One-Line Deploy)
 
-Run this on a fresh Ubuntu/Debian VPS (e.g., Hostinger, DigitalOcean):
+Run this on a fresh Ubuntu/Debian VPS (e.g., DigitalOcean, Hostinger):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/kodaxx/scout-talk-relay/main/install.sh | bash
@@ -13,7 +13,7 @@ curl -sL https://raw.githubusercontent.com/kodaxx/scout-talk-relay/main/install.
 
 ---
 
-## Packet Structure
+## 📡 Protocol Specification
 
 All integers are **Big Endian**. The header is exactly **11 Bytes**.
 
@@ -21,28 +21,54 @@ All integers are **Big Endian**. The header is exactly **11 Bytes**.
 
 | Byte Offset | Field | Type | Description |
 | --- | --- | --- | --- |
-| **0** | `Type` | `UInt8` | Packet Type (Arbitrary, e.g., 1=Voice) |
-| **1-4** | `User ID` | `UInt32` | Unique Sender ID |
-| **5-6** | `Channel ID` | `UInt16` | **Routing Key** (Clients in same ID hear each other) |
-| **7-8** | `Sequence` | `UInt16` | Packet Sequence Number |
-| **9-10** | `Payload Len` | `UInt16` | **0** = Heartbeat, **>0** = Audio Data |
+| **0** | `Type` | `UInt8` | 0=Beacon, 1=Audio, 2=Text, 3=Leave |
+| **1-4** | `User ID` | `UInt32` | Unique ID/IP for the session |
+| **5-6** | `Channel ID` | `UInt16` | **Routing Key** (0-999) |
+| **7-8** | `Sequence` | `UInt16` | Packet counter for loss detection |
+| **9-10** | `Payload Len` | `UInt16` | Length of data following the header |
 
-### Logic
+### Packet Logic
 
-1. **Heartbeats (`Payload Len == 0`):**
-* Send this packet every **15-30 seconds** to keep the NAT hole open.
-* **Server Behavior:** Updates the client's "Last Seen" timestamp. **Does not forward.**
+1. **TYPE_BEACON (0):**
+* Sent every **15-30s** to maintain NAT mapping.
+* **Server:** Updates "Last Seen" timestamp. **Does not forward.**
 
 
-2. **Audio (`Payload Len > 0`):**
-* Append Opus/Audio data immediately after the 11-byte header.
-* **Server Behavior:** Reflects the *entire* packet (Header + Audio) to all other clients in the `Channel ID`.
+2. **TYPE_AUDIO (1) & TYPE_TEXT (2):**
+* Contains voice or chat data.
+* **Server:** Reflects packet to everyone in the `Channel ID` **AND** everyone in `Channel 0`.
+
+
+3. **TYPE_LEAVE (3):**
+* Sent when a user switches channels or exits.
+* **Server:** Instantly deletes the user from that channel list.
+
+
 
 ---
 
-## Manual Installation
+## 🏗 Modular Architecture
 
-If you prefer not to use the automated script:
+To ensure stability, the server is split into three components:
+
+* **`state.js`**: Shared in-memory data (channels, stats, and logs).
+* **`server.js`**: The UDP relay engine and session manager.
+* **`dashboard.js`**: A web-based UI for real-time monitoring.
+
+---
+
+## 📊 Live Dashboard & Diagnostics
+
+The server includes a built-in monitoring tool accessible at `http://your-ip:8080`.
+
+* **Real-time Stats:** Monitor Packets In/Out and Event Loop Lag.
+* **Upstream Loss:** Uses the `Sequence` header to detect packets lost between the user and the server.
+* **Global Broadcast:** Send administrative text messages to every connected user.
+* **Event Log:** View join/leave/timeout events as they happen.
+
+---
+
+## 🛠 Manual Installation
 
 1. **Install Node.js & PM2:**
 ```bash
@@ -53,48 +79,46 @@ sudo npm install -g pm2
 ```
 
 
-2. **Run the Server:**
+2. **Setup Project:**
 ```bash
 git clone https://github.com/kodaxx/scout-talk-relay.git
 cd scout-talk-relay
 npm install
-pm2 start relay_server.js --name "scout-talk-relay"
+pm2 start server.js --name "scout-talk-relay"
 
 ```
 
 
-3. **Enable Startup on Boot:**
+
+---
+
+## 🛡 Firewall Configuration
+
+You must open both the UDP port for traffic and the TCP port for the dashboard:
+
+1. **UDP Port 6000:** Voice and Data traffic.
+2. **TCP Port 8080:** Dashboard Web UI.
+
 ```bash
-pm2 save
-pm2 startup
+sudo ufw allow 6000/udp
+sudo ufw allow 8080/tcp
 
 ```
 
 ---
 
-## Configuration
+## Management
 
-You can modify these constants at the top of `relay_server.js`:
-
-* `PORT`: Default `6000` (UDP).
-* `TIMEOUT_MS`: Default `45000` (45s). Users are removed from memory if silent for this long.
-
----
-
-## Troubleshooting
-
-**"I can't connect / Packets are dropped"**
-If the server is running but packets aren't getting through, check the **Cloud Firewall**.
-
-1. **Hostinger:** Go to **VPS Dashboard** → **Security** → **Firewall**.
-* Create a new rule: `Protocol: UDP`, `Port: 6000`, `Source: 0.0.0.0/0`.
-
-
-2. **AWS/DigitalOcean:** Check "Security Groups" or "Firewalls" and allow Inbound UDP 6000.
-
-**Check Logs:**
+**Check Live Traffic:**
 
 ```bash
 pm2 logs scout-talk-relay
+
+```
+
+**Hot-Reload Update:**
+
+```bash
+./update.sh
 
 ```

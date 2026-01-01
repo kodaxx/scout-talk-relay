@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # --- CONFIGURATION ---
-REPO_DIR="scout-talk-relay"
 APP_NAME="scout-talk-relay"
 
 # Stop script on error
@@ -10,14 +9,6 @@ set -e
 echo "=========================================="
 echo "    UPDATING SCOUT TALK RELAY SERVER      "
 echo "=========================================="
-
-# Navigate to directory
-if [ -d "$REPO_DIR" ]; then
-    cd "$REPO_DIR"
-else
-    echo "Error: $REPO_DIR directory not found. Please run the install script first."
-    exit 1
-fi
 
 # Pull latest changes
 echo "[1/4] Pulling latest code from Git..."

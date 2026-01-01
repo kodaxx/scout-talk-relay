@@ -1,26 +1,27 @@
 module.exports = {
-    version: "0.2.0",
+    version: "0.4.0",
     
-    // Structure: channels[channelId][userId] = { sessionData }
+    // Active routing table: channels[channelId][userId]
     channels: {},
 
-    // Global performance metrics
+    // Persistent GPS cache (Last Known Position)
+    // Updated by server.js, persists for 4 hours
+    history: {},
+
     stats: {
         packetsIn: 0,
         packetsOut: 0,
-        upstreamLoss: 0,        // Detected via sequence gaps
-        downstreamErrors: 0,    // UDP send failures
-        loopLag: 0              // Event loop delay in ms
+        upstreamLoss: 0,
+        downstreamErrors: 0,
+        loopLag: 0
     },
 
-    // Rolling buffer of the last 50 system events
     events: [],
 
-    // Server configuration
     config: {
         UDP_PORT: 6000,
         WEB_PORT: 8080,
-        TRUNK_CHANNEL: 0,       // All traffic is mirrored here
-        TIMEOUT_MS: 45000       // User is dropped after 45s of silence
+        TRUNK_CHANNEL: 0,
+        TIMEOUT_MS: 45000 // Active session timeout (45s)
     }
 };

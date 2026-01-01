@@ -1,4 +1,4 @@
-# Scout Talk Relay Server (v0.1.0)
+# Scout Talk Relay Server (v0.2.0)
 
 A modular, high-performance UDP reflector designed for Push-To-Talk (PTT) voice and text applications. It handles NAT traversal, real-time diagnostics, and "Global Trunk" bridging.
 

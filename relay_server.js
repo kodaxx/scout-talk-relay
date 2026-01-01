@@ -3,10 +3,14 @@ const server = dgram.createSocket('udp4');
 
 // --- Configuration ---
 const PORT = 6000;
-const TIMEOUT_MS = 45000; // 45 seconds timeout
+const TIMEOUT_MS = 45000; 
+const TRUNK_CHANNEL = 0; // The "Global" Bridge Channel
+
+// --- Protocol Constants ---
+const TYPE_BEACON = 0;
+const TYPE_AUDIO = 1;
 
 // --- State Storage ---
-// Structure: { channelID: { "ip:port": lastSeenTimestamp } }
 const channels = {};
 
 server.on('error', (err) => {
@@ -14,82 +18,85 @@ server.on('error', (err) => {
     server.close();
 });
 
+/**
+ * Helper to send packets to a specific channel's participants
+ * @param {Buffer} msg - The raw packet
+ * @param {string} senderKey - The ip:port of the source
+ * @param {number} targetChannelId - Which channel to iterate over
+ */
+function forwardToChannel(msg, senderKey, targetChannelId) {
+    const peers = channels[targetChannelId];
+    if (!peers) return;
+
+    for (const [peerKey, lastSeen] of Object.entries(peers)) {
+        // "Self-Echo" Guard: Never send back to the originating socket
+        if (peerKey !== senderKey) {
+            const [peerIp, peerPort] = peerKey.split(':');
+            
+            server.send(msg, parseInt(peerPort), peerIp, (err) => {
+                if (err) console.error(`Send error to ${peerKey} on Ch ${targetChannelId}:`, err);
+            });
+        }
+    }
+}
+
 server.on('message', (msg, rinfo) => {
-    // 1. Validate Packet Size
-    // Header is exactly 11 bytes. Any packet smaller than this is junk.
     if (msg.length < 11) return;
 
-    // 2. Parse Header (Big Endian)
-    // [0] Type (1 Byte) - Not used for routing, but good to know
-    // [1-4] Virtual IP / User ID (4 Bytes)
-    // [5-6] Channel ID (2 Bytes) -> ROUTING KEY
-    // [7-8] Sequence (2 Bytes)
-    // [9-10] Payload Length (2 Bytes) -> HEARTBEAT CHECK
-
-    const userId = msg.readUInt32BE(1);      // Bytes 1-4
-    const channelId = msg.readUInt16BE(5);   // Bytes 5-6
-    const payloadLen = msg.readUInt16BE(9);  // Bytes 9-10
-
-    // Create unique network address key
+    // Parse Header
+    const type = msg.readUInt8(0);
+    const userId = msg.readUInt32BE(1); // User ID/IP for logging
+    const channelId = msg.readUInt16BE(5);
+    
     const clientKey = `${rinfo.address}:${rinfo.port}`;
     const now = Date.now();
 
-    // 3. Update Session (NAT Keep-Alive Logic)
-    if (!channels[channelId]) {
-        channels[channelId] = {};
-    }
-
-    if (!channels[channelId][clientKey]) {
-        console.log(`New Client: User ${userId} (IP: ${clientKey}) joined Channel ${channelId}`);
-    }
+    // 1. Update Session State
+    if (!channels[channelId]) channels[channelId] = {};
     
-    // Update timestamp to keep the router port open
+    if (!channels[channelId][clientKey]) {
+        const role = channelId === TRUNK_CHANNEL ? "BRIDGE" : "USER";
+        console.log(`[${role} JOINED] ID: ${userId} | Addr: ${clientKey} | Ch: ${channelId}`);
+    }
     channels[channelId][clientKey] = now;
 
-    // Reflection Rule
-    // Check the Payload Length field we parsed from bytes 9-10
-    if (payloadLen === 0) {
-        // It is a Heartbeat.
-        // We updated the timestamp above, so we are done. Do NOT forward.
-        // console.log(`Heartbeat from User ${userId}`); // Uncomment for debugging
+    // 2. Protocol Logic
+    if (type === TYPE_BEACON) {
+        // Beacons only update timestamps (handled above)
         return;
-    }
-
-    // It is Audio (PayloadLen > 0). FORWARD to peers.
-    const peers = channels[channelId];
+    } 
     
-    for (const [peerKey, lastSeen] of Object.entries(peers)) {
-        // Don't echo back to sender
-        if (peerKey !== clientKey) {
-            const [peerIp, peerPort] = peerKey.split(':');
-            
-            // Forward the EXACT raw message (Header + Audio)
-            // We do not modify the packet; we just reflect it.
-            server.send(msg, parseInt(peerPort), peerIp, (err) => {
-                if (err) console.error(`Send error to ${peerKey}:`, err);
-            });
+    else if (type === TYPE_AUDIO) {
+        // FORWARDING LOGIC
+        
+        // A. Forward to the specific channel subscribers
+        forwardToChannel(msg, clientKey, channelId);
+
+        // B. GLOBAL TRUNK: If this isn't already the trunk channel, 
+        // forward it to all Bridges on Channel 0.
+        if (channelId !== TRUNK_CHANNEL) {
+            forwardToChannel(msg, clientKey, TRUNK_CHANNEL);
         }
     }
 });
 
-// Cleanup Task (Runs every 10 seconds)
+// Cleanup Task (Stale session removal)
 setInterval(() => {
     const now = Date.now();
-    for (const channelId in channels) {
-        const clients = channels[channelId];
-        for (const clientKey in clients) {
-            if (now - clients[clientKey] > TIMEOUT_MS) {
-                console.log(`Timeout: Removing ${clientKey} from Channel ${channelId}`);
-                delete clients[clientKey];
+    for (const chId in channels) {
+        for (const clientKey in channels[chId]) {
+            if (now - channels[chId][clientKey] > TIMEOUT_MS) {
+                console.log(`Timeout: Removing ${clientKey} from Channel ${chId}`);
+                delete channels[chId][clientKey];
             }
         }
-        if (Object.keys(clients).length === 0) {
-            delete channels[channelId];
+        if (Object.keys(channels[chId]).length === 0) {
+            delete channels[chId];
         }
     }
 }, 10000);
 
 server.bind(PORT, () => {
-    console.log(`UDP Relay Server listening on 0.0.0.0:${PORT}`);
-    console.log("Expecting Big Endian Binary Packets (11 Byte Header)");
+    console.log(`UDP Global Relay Active on port ${PORT}`);
+    console.log(`Bridges should connect to Channel ${TRUNK_CHANNEL}`);
 });

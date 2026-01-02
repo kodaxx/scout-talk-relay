@@ -70,7 +70,7 @@ function generateHTML() {
         <div class="card">
             <h3 style="margin-top:0;">Sessions & History</h3>
             <table>
-                <thead><tr><th>Identity</th><th>CH</th><th>Last Seen</th><th>Status</th></tr></thead>
+                <thead><tr><th>Identity</th><th>CH</th><th>Last Seen</th><th>Location</th><th>Status</th></tr></thead>
                 <tbody id="userBody"></tbody>
             </table>
         </div>
@@ -89,6 +89,25 @@ function generateHTML() {
         let markers = {};
         let knownChannels = new Set();
         let hasInitiallyCentered = false;
+
+        function showUserOnMap(userId, lat, lon, callsign) {
+            // Remove old marker if exists
+            if (markers[userId]) {
+                map.removeLayer(markers[userId]);
+            }
+            // Create temporary marker for this location
+            const dotColor = "#00FF41";
+            markers[userId] = L.circleMarker([lat, lon], { 
+                radius: 8, 
+                weight: 2, 
+                color: '#ffffff',
+                fillColor: dotColor,
+                fillOpacity: 1,
+                opacity: 1
+            }).bindTooltip(<b>${callsign}</b><br>Zoomed View, { sticky: true }).addTo(map);
+            // Zoom to this location
+            map.setView([lat, lon], 13);
+        }
 
         function centerMap() {
             const markerArray = Object.values(markers);
@@ -156,12 +175,16 @@ function generateHTML() {
                 const isSpeaking = (now - (u.lastAudio || 0)) < 2000;
 
                 const row = tbody.insertRow();
-                row.innerHTML = \`<td><b>\${u.callsign || 'Unknown'}</b><br><small style="color:#64748b">ID: \${uid}</small></td>
-                               <td>CH \${u.channel}</td>
-                               <td>\${Math.floor(timeSince)}s ago</td>
-                               <td class="\${isSpeaking ? 'speaking' : ''}">\${u.status}</td>\`;
+                const locationCell = (u.lat !== null && u.lon !== null && !(u.lat === 0 && u.lon === 0)) 
+                    ? <td><a href="javascript:void(0)" onclick="showUserOnMap('${uid}', ${u.lat}, ${u.lon}, '${(u.callsign || 'Unknown').replace(/'/g, "\\'")}')" style="color: #00FF41; cursor: pointer; text-decoration: underline;">Show on Map</a></td>
+                    : '<td>No GPS Data</td>';
+                row.innerHTML = <td><b>${u.callsign || 'Unknown'}</b><br><small style="color:#64748b">ID: ${uid}</small></td>
+                               <td>CH ${u.channel}</td>
+                               <td>${Math.floor(timeSince)}s ago</td>
+                               ${locationCell}
+                               <td class="\${isSpeaking ? 'speaking' : ''}">\${u.status}</td>\;
 
-                if (Number.isFinite(u.lat) && Number.isFinite(u.lon)) {
+                if (Number.isFinite(u.lat) && Number.isFinite(u.lon) && !(u.lat === 0 && u.lon === 0)) {
                     const opacity = u.isGhost ? Math.max(0.1, 0.6 - (timeSince / 14400)) : 1;
                     const dotColor = "#00FF41"; 
                     

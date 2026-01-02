@@ -85,7 +85,9 @@ server.on('message', (msg, rinfo) => {
 
     // 5. Update Long-Term History (LKP)
     // We store the last known position, callsign, and channel for 4 hours
-    if (Number.isFinite(userData.lat) && Number.isFinite(userData.lon)) {
+    // Exclude (0,0) as it's not a valid location and affects map zoom
+    if (Number.isFinite(userData.lat) && Number.isFinite(userData.lon) && 
+        !(userData.lat === 0 && userData.lon === 0)) {
         locationHistory[userId] = {
             lat: userData.lat,
             lon: userData.lon,

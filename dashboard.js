@@ -104,7 +104,7 @@ function generateHTML() {
                 fillColor: dotColor,
                 fillOpacity: 1,
                 opacity: 1
-            }).bindTooltip(<b>${callsign}</b><br>Zoomed View, { sticky: true }).addTo(map);
+            }).bindTooltip(\`<b>\${callsign}</b><br>Zoomed View\`, { sticky: true }).addTo(map);
             // Zoom to this location
             map.setView([lat, lon], 13);
         }

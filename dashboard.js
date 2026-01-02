@@ -176,13 +176,13 @@ function generateHTML() {
 
                 const row = tbody.insertRow();
                 const locationCell = (u.lat !== null && u.lon !== null && !(u.lat === 0 && u.lon === 0)) 
-                    ? <td><a href="javascript:void(0)" onclick="showUserOnMap('${uid}', ${u.lat}, ${u.lon}, '${(u.callsign || 'Unknown').replace(/'/g, "\\'")}')" style="color: #00FF41; cursor: pointer; text-decoration: underline;">Show on Map</a></td>
+                    ? \`<td><a href="javascript:void(0)" onclick="showUserOnMap('\${uid}', \${u.lat}, \${u.lon}, '\${(u.callsign || 'Unknown').replace(/'/g, "\\\\'")}')" style="color: #00FF41; cursor: pointer; text-decoration: underline;">Show on Map</a></td>\`
                     : '<td>No GPS Data</td>';
-                row.innerHTML = <td><b>${u.callsign || 'Unknown'}</b><br><small style="color:#64748b">ID: ${uid}</small></td>
-                               <td>CH ${u.channel}</td>
-                               <td>${Math.floor(timeSince)}s ago</td>
-                               ${locationCell}
-                               <td class="\${isSpeaking ? 'speaking' : ''}">\${u.status}</td>\;
+                row.innerHTML = \`<td><b>\${u.callsign || 'Unknown'}</b><br><small style="color:#64748b">ID: \${uid}</small></td>
+                               <td>CH \${u.channel}</td>
+                               <td>\${Math.floor(timeSince)}s ago</td>
+                               \${locationCell}
+                               <td class="\${isSpeaking ? 'speaking' : ''}">\${u.status}</td>\`;
 
                 if (Number.isFinite(u.lat) && Number.isFinite(u.lon) && !(u.lat === 0 && u.lon === 0)) {
                     const opacity = u.isGhost ? Math.max(0.1, 0.6 - (timeSince / 14400)) : 1;

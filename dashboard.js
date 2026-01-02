@@ -161,7 +161,7 @@ function generateHTML() {
                                <td>\${Math.floor(timeSince)}s ago</td>
                                <td class="\${isSpeaking ? 'speaking' : ''}">\${u.status}</td>\`;
 
-                if (u.lat && u.lon) {
+                if (Number.isFinite(u.lat) && Number.isFinite(u.lon)) {
                     const opacity = u.isGhost ? Math.max(0.1, 0.6 - (timeSince / 14400)) : 1;
                     const dotColor = "#00FF41"; 
                     

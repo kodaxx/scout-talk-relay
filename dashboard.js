@@ -39,14 +39,14 @@ function generateHTML() {
         td { padding: 10px; border-bottom: 1px solid #020617; }
         
         /* Pulse Effects */
-        .speaking { color: #00FF41 !ext-important; font-weight: bold; animation: pulse 1.0s infinite; }
+        .speaking { color: #00FF41 !important; font-weight: bold; animation: pulse 1.0s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
         
         /* Map Pulse for CircleMarkers */
         .pulse-marker { animation: mapPulse 1.0s infinite; }
         @keyframes mapPulse {
             0% { stroke-width: 2; stroke-opacity: 1; }
-            50% { stroke-width: 8; stroke-opacity: 0.4; }
+            50% { stroke-width: 10; stroke-opacity: 0; }
             100% { stroke-width: 2; stroke-opacity: 1; }
         }
 
@@ -75,7 +75,7 @@ function generateHTML() {
             </table>
         </div>
         <div class="card">
-            <h3 style="margin-top:0;">Relay Health</h3>
+            <h3>Relay Health</h3>
             <p>Packets In: <span id="pIn" class="stat-val">0</span></p>
             <p>Upstream Loss: <span id="pLoss" class="stat-val" style="color:#fb7185">0</span></p>
             <div id="events" style="font-size: 11px; color: #64748b; height: 180px; overflow-y: auto; margin-top:10px; border-top: 1px solid #1e293b; padding-top:10px;"></div>
@@ -83,16 +83,18 @@ function generateHTML() {
     </div>
 
     <script>
-        const map = L.map('map', {zoomControl: false}).setView([0, 0], 2);
+        const map = L.map('map', {zoomControl: true}).setView([0, 0], 2);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+        
         let markers = {};
         let knownChannels = new Set();
+        let hasInitiallyCentered = false;
 
         function centerMap() {
             const markerArray = Object.values(markers);
             if (markerArray.length > 0) {
                 const group = new L.featureGroup(markerArray);
-                map.fitBounds(group.getBounds(), { padding: [80, 80], maxZoom: 16 });
+                map.fitBounds(group.getBounds(), { padding: [80, 80], maxZoom: 14 });
             }
         }
 
@@ -111,7 +113,6 @@ function generateHTML() {
             const allUsers = {};
             const currentChannels = new Set();
 
-            // 1. Process History (Ghost data)
             if(data.history) {
                 for(const id in data.history) {
                     allUsers[id] = { ...data.history[id], status: 'Offline', isGhost: true };
@@ -119,7 +120,6 @@ function generateHTML() {
                 }
             }
 
-            // 2. Overlay Active Sessions
             for (const chId in data.channels) {
                 currentChannels.add(chId.toString());
                 for (const uid in data.channels[chId]) {
@@ -127,7 +127,6 @@ function generateHTML() {
                 }
             }
 
-            // 3. Dynamic Channel Dropdown
             const select = document.getElementById('chanFilter');
             currentChannels.forEach(ch => {
                 if (!knownChannels.has(ch)) {
@@ -156,7 +155,6 @@ function generateHTML() {
                 processedUids.add(uid);
                 const isSpeaking = (now - (u.lastAudio || 0)) < 2000;
 
-                // Table Row: Show Callsign with UserID in small text
                 const row = tbody.insertRow();
                 row.innerHTML = \`<td><b>\${u.callsign || 'Unknown'}</b><br><small style="color:#64748b">ID: \${uid}</small></td>
                                <td>CH \${u.channel}</td>
@@ -167,8 +165,7 @@ function generateHTML() {
                     const opacity = u.isGhost ? Math.max(0.1, 0.6 - (timeSince / 14400)) : 1;
                     const dotColor = "#00FF41"; 
                     
-                    const tooltipHtml = \`<b>Callsign: \${u.callsign || 'Unknown'}</b><br>
-                                       <b>ID:</b> \${uid}<br>
+                    const tooltipHtml = \`<b>\${u.callsign || 'Unknown'}</b><br>
                                        <b>CH:</b> \${u.channel}<br>
                                        <b>Type:</b> \${u.isGhost ? 'Last Known' : 'Active'}<br>
                                        <b>Seen:</b> \${Math.floor(timeSince)}s ago\`;
@@ -178,13 +175,15 @@ function generateHTML() {
                             radius: 8, 
                             weight: 2, 
                             color: '#ffffff',
-                            className: '' 
+                            fillColor: dotColor,
+                            fillOpacity: opacity,
+                            opacity: opacity
                         }).addTo(map);
                     }
                     
                     markers[uid].setLatLng([u.lat, u.lon]);
                     
-                    // Update Pulse CSS Class if speaking
+                    // Force the element to pulse if speaking
                     const markerElement = markers[uid].getElement();
                     if (markerElement) {
                         if (isSpeaking) markerElement.classList.add('pulse-marker');
@@ -197,7 +196,8 @@ function generateHTML() {
                         opacity: opacity,
                         color: isSpeaking ? '#00FF41' : '#ffffff'
                     });
-                    markers[uid].bindTooltip(tooltipHtml, { sticky: true });
+                    markers[uid].setTooltipContent(tooltipHtml);
+                    if (!markers[uid].getTooltip()) markers[uid].bindTooltip(tooltipHtml, { sticky: true });
                 }
             }
 
@@ -206,6 +206,12 @@ function generateHTML() {
                     map.removeLayer(markers[id]);
                     delete markers[id];
                 }
+            }
+
+            // AUTO-CENTER: If we just got our first marker, zoom to it
+            if (!hasInitiallyCentered && Object.keys(markers).length > 0) {
+                centerMap();
+                hasInitiallyCentered = true;
             }
         }
 

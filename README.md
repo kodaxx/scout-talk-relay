@@ -1,4 +1,4 @@
-# Scout Talk Relay Server (v0.4.0)
+# Scout Talk Relay Server (v0.5.0)
 
 A modular, high-performance UDP reflector designed for Push-To-Talk (PTT) voice and text applications. It handles NAT traversal, real-time diagnostics, and "Global Trunk" bridging.
 
@@ -13,7 +13,7 @@ curl -sL https://raw.githubusercontent.com/kodaxx/scout-talk-relay/main/install.
 
 ---
 
-## 📡 Protocol Specification
+## Protocol Specification
 
 All integers are **Big Endian**. The header is exactly **11 Bytes**.
 
@@ -43,21 +43,9 @@ All integers are **Big Endian**. The header is exactly **11 Bytes**.
 * Sent when a user switches channels or exits.
 * **Server:** Instantly deletes the user from that channel list.
 
-
-
 ---
 
-## 🏗 Modular Architecture
-
-To ensure stability, the server is split into three components:
-
-* **`state.js`**: Shared in-memory data (channels, stats, and logs).
-* **`server.js`**: The UDP relay engine and session manager.
-* **`dashboard.js`**: A web-based UI for real-time monitoring.
-
----
-
-## 📊 Live Dashboard & Diagnostics
+## Live Dashboard & Diagnostics
 
 The server includes a built-in monitoring tool accessible at `http://your-ip:8080`.
 
@@ -68,7 +56,7 @@ The server includes a built-in monitoring tool accessible at `http://your-ip:808
 
 ---
 
-## 🛠 Manual Installation
+## Manual Installation
 
 1. **Install Node.js & PM2:**
 ```bash
@@ -88,11 +76,9 @@ pm2 start server.js --name "scout-talk-relay"
 
 ```
 
-
-
 ---
 
-## 🛡 Firewall Configuration
+## Firewall Configuration
 
 You must open both the UDP port for traffic and the TCP port for the dashboard:
 

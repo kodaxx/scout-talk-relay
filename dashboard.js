@@ -37,14 +37,26 @@ function generateHTML() {
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th { text-align: left; color: #64748b; padding: 12px; border-bottom: 1px solid #1e293b; }
         td { padding: 10px; border-bottom: 1px solid #020617; }
-        .speaking { color: #00FF41; font-weight: bold; animation: pulse 1.5s infinite; }
+        
+        /* Pulse Effects */
+        .speaking { color: #00FF41 !ext-important; font-weight: bold; animation: pulse 1.0s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .leaflet-tooltip { background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 4px; font-size: 12px; }
+        
+        /* Map Pulse for CircleMarkers */
+        .pulse-marker { animation: mapPulse 1.0s infinite; }
+        @keyframes mapPulse {
+            0% { stroke-width: 2; stroke-opacity: 1; }
+            50% { stroke-width: 8; stroke-opacity: 0.4; }
+            100% { stroke-width: 2; stroke-opacity: 1; }
+        }
+
+        .leaflet-tooltip { background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 4px; font-size: 12px; padding: 8px; }
     </style>
 </head>
 <body>
     <div class="controls">
-        <h1 style="margin:0;">Scout Talk Relay <small style="font-size: 12px; color: #64748b; vertical-align: middle;">v${state.version}</small></h1>        <div style="flex-grow:1"></div>
+        <h1 style="margin:0;">Scout Talk Relay <small style="font-size: 12px; color: #64748b; vertical-align: middle;">v${state.version}</small></h1>
+        <div style="flex-grow:1"></div>
         <label>Filter Channel:</label>
         <select id="chanFilter">
             <option value="all">All Channels</option>
@@ -58,7 +70,7 @@ function generateHTML() {
         <div class="card">
             <h3 style="margin-top:0;">Sessions & History</h3>
             <table>
-                <thead><tr><th>User ID</th><th>CH</th><th>Last Seen</th><th>Status</th></tr></thead>
+                <thead><tr><th>Identity</th><th>CH</th><th>Last Seen</th><th>Status</th></tr></thead>
                 <tbody id="userBody"></tbody>
             </table>
         </div>
@@ -99,7 +111,7 @@ function generateHTML() {
             const allUsers = {};
             const currentChannels = new Set();
 
-            // 1. Process History (LKP)
+            // 1. Process History (Ghost data)
             if(data.history) {
                 for(const id in data.history) {
                     allUsers[id] = { ...data.history[id], status: 'Offline', isGhost: true };
@@ -115,7 +127,7 @@ function generateHTML() {
                 }
             }
 
-            // 3. Dynamically update the Channel Dropdown if new channels appear
+            // 3. Dynamic Channel Dropdown
             const select = document.getElementById('chanFilter');
             currentChannels.forEach(ch => {
                 if (!knownChannels.has(ch)) {
@@ -133,32 +145,30 @@ function generateHTML() {
 
             for (const uid in allUsers) {
                 const u = allUsers[uid];
-                
-                // Channel Filtering
                 if (filter !== 'all' && u.channel.toString() !== filter) {
                     if(markers[uid]) { map.removeLayer(markers[uid]); delete markers[uid]; }
                     continue;
                 }
 
                 const timeSince = (now - (u.lastSeen || u.time)) / 1000;
-                if (timeSince > 14400) continue; // Hard limit 4 hours
+                if (timeSince > 14400) continue; 
 
                 processedUids.add(uid);
                 const isSpeaking = (now - (u.lastAudio || 0)) < 2000;
 
-                // Table Update
+                // Table Row: Show Callsign with UserID in small text
                 const row = tbody.insertRow();
-                row.innerHTML = \`<td>\${uid}</td>
+                row.innerHTML = \`<td><b>\${u.callsign || 'Unknown'}</b><br><small style="color:#64748b">ID: \${uid}</small></td>
                                <td>CH \${u.channel}</td>
                                <td>\${Math.floor(timeSince)}s ago</td>
                                <td class="\${isSpeaking ? 'speaking' : ''}">\${u.status}</td>\`;
 
-                // Map Marker Logic
                 if (u.lat && u.lon) {
                     const opacity = u.isGhost ? Math.max(0.1, 0.6 - (timeSince / 14400)) : 1;
-                    const dotColor = "#00FF41"; // Neon Green
+                    const dotColor = "#00FF41"; 
                     
-                    const tooltipHtml = \`<b>ID:</b> \${uid}<br>
+                    const tooltipHtml = \`<b>Callsign: \${u.callsign || 'Unknown'}</b><br>
+                                       <b>ID:</b> \${uid}<br>
                                        <b>CH:</b> \${u.channel}<br>
                                        <b>Type:</b> \${u.isGhost ? 'Last Known' : 'Active'}<br>
                                        <b>Seen:</b> \${Math.floor(timeSince)}s ago\`;
@@ -167,21 +177,30 @@ function generateHTML() {
                         markers[uid] = L.circleMarker([u.lat, u.lon], { 
                             radius: 8, 
                             weight: 2, 
-                            color: '#ffffff' 
+                            color: '#ffffff',
+                            className: '' 
                         }).addTo(map);
                     }
                     
                     markers[uid].setLatLng([u.lat, u.lon]);
+                    
+                    // Update Pulse CSS Class if speaking
+                    const markerElement = markers[uid].getElement();
+                    if (markerElement) {
+                        if (isSpeaking) markerElement.classList.add('pulse-marker');
+                        else markerElement.classList.remove('pulse-marker');
+                    }
+
                     markers[uid].setStyle({
                         fillColor: dotColor,
                         fillOpacity: opacity,
-                        opacity: opacity
+                        opacity: opacity,
+                        color: isSpeaking ? '#00FF41' : '#ffffff'
                     });
                     markers[uid].bindTooltip(tooltipHtml, { sticky: true });
                 }
             }
 
-            // Cleanup markers not in current filter/data
             for (const id in markers) {
                 if (!processedUids.has(id)) {
                     map.removeLayer(markers[id]);

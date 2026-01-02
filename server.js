@@ -48,12 +48,16 @@ server.on('message', (msg, rinfo) => {
         return; 
     }
 
-    // 2. GPS Extraction (from 19-byte Type 0 Beacon)
+    // 2. Data Extraction (from 31-byte Type 0 Beacon)
     let lat = null;
     let lon = null;
-    if (type === 0 && msg.length >= 19) {
+    let callsign = null;
+
+    if (type === 0 && msg.length >= 31) {
         lat = msg.readFloatBE(11);
         lon = msg.readFloatBE(15);
+        // Extract 12 bytes starting at offset 19, strip null padding
+        callsign = msg.toString('utf8', 19, 31).replace(/\0/g, '').trim();
     }
 
     // 3. Session Management
@@ -65,6 +69,8 @@ server.on('message', (msg, rinfo) => {
     // 4. Update Current Active Session
     const userData = {
         userId,
+        // Use new callsign if provided, otherwise keep old one, otherwise default to ID
+        callsign: callsign || session?.callsign || `User ${userId}`,
         address: rinfo.address,
         port: rinfo.port,
         transportKey,
@@ -78,11 +84,12 @@ server.on('message', (msg, rinfo) => {
     channels[channelId][clientKey] = userData;
 
     // 5. Update Long-Term History (LKP)
-    // We store the last known position and channel for up to 4 hours
+    // We store the last known position, callsign, and channel for 4 hours
     if (userData.lat && userData.lon) {
         locationHistory[userId] = {
             lat: userData.lat,
             lon: userData.lon,
+            callsign: userData.callsign,
             time: Date.now(),
             channel: channelId
         };
@@ -106,7 +113,6 @@ server.on('message', (msg, rinfo) => {
 });
 
 // --- API Bridge: Inject History into Dashboard ---
-// We overwrite state.history dynamically for the web dashboard
 Object.defineProperty(state, 'history', {
     get: function() { return locationHistory; },
     enumerable: true
@@ -120,7 +126,8 @@ setInterval(() => {
     for (const ch in channels) {
         for (const uid in channels[ch]) {
             if (now - channels[ch][uid].lastSeen > config.TIMEOUT_MS) {
-                logEvent(`User ${uid} TIMED OUT from Ch ${ch}`);
+                // We don't log "Timed Out" for every mesh node to keep console clean,
+                // but we remove them from active routing.
                 delete channels[ch][uid];
             }
         }
